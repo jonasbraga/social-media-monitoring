@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  tweets-consumer:
+    image: tweets-consumers
+    build:
+      context: ./src/recent-tweets-monitor/
+      dockerfile: Dockerfile
+      target: development
+    command: npm run start:dev
+    volumes:
+      - ./src/recent-tweets-monitor:/usr/src/app
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=development
+
+  x-api-mock-server:
+    image: x-api-mock-server
+    build:
+      context: ./src/x-api-mock-server/
+      target: development
+    command: npm run start:dev
+    volumes:
+      - ./src/x-api-mock-server:/usr/src/app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
