@@ -1,4 +1,11 @@
-import { Controller, Get, Res, StreamableFile } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Query,
+  Res,
+} from '@nestjs/common';
 import { AppService } from './app.service';
 import { Response } from 'express';
 
@@ -7,20 +14,32 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   @Get('/tweets/search/stream/:hashtag')
-  streamTweets(@Res() res: Response) {
+  streamTweets(
+    @Param('hashtag') hashtag: string,
+    @Query('limit', ParseIntPipe) limit: number,
+    @Query('frequency', ParseIntPipe) frequency: number,
+    @Query('maxTweets', ParseIntPipe) maxTweets: number,
+    @Res() res: Response,
+  ) {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Transfer-Encoding', 'chunked');
     res.setHeader('Connection', 'keep-alive');
 
-    let counter = 1;
+    let count = 0;
+    const maxCount = limit;
+
     const tweetsInterval = setInterval(() => {
-      const tweets = this.appService.getTweets();
+      if (maxCount && count >= maxCount) {
+        clearInterval(tweetsInterval);
+        res.end();
+        return;
+      }
+
+      const tweets = this.appService.getTweets(maxTweets);
       console.log('Sending tweets:', tweets);
       res.write(JSON.stringify(tweets) + '\n');
-      if (counter++ === 10) {
-        res.end();
-      }
-    }, 1000);
+      count++;
+    }, frequency || 1000);
 
     res.on('close', () => {
       console.log(

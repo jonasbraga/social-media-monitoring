@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class AppService {
-  getTweets() {
+  getTweets(maxTweets: number = 10) {
     function generateTweets() {
       return {
         id: faker.string.uuid(),
@@ -13,7 +13,7 @@ export class AppService {
       };
     }
     const tweets = faker.helpers.multiple(generateTweets, {
-      count: faker.number.int({ min: 0, max: 10 }),
+      count: faker.number.int({ min: 0, max: maxTweets }),
     });
     return tweets;
   }
