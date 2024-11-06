@@ -4,6 +4,7 @@ import { SocialMediaRepository } from './social-media.repository';
 import { TweetSocialMediaData } from './interfaces/social-media-data.interface';
 import axios, { AxiosResponse } from 'axios';
 import { TwitterAdapter } from './adapters/twitter.adapter';
+import { MetricsService } from 'src/metric/metric.service';
 
 @Injectable()
 export class SocialMediaService {
@@ -14,7 +15,10 @@ export class SocialMediaService {
   private dataBuffer = '';
   private BATCH_SIZE = 25;
 
-  constructor(private readonly repository: SocialMediaRepository) {}
+  constructor(
+    private readonly repository: SocialMediaRepository,
+    private readonly metricService: MetricsService,
+  ) {}
 
   async consumeTweets(
     hashtag: string,
@@ -73,6 +77,8 @@ export class SocialMediaService {
       // Extract complete JSON arrays from the dataBuffer, this is usually needed because sometimes the data is not received in full JSON arrays, but cut off in the middle
       const tweets = this.extractCompleteArraysFromBuffer();
       this.logger.log(`Extracted ${tweets.length} tweets from last chunk`);
+
+      await this.metricService.publishTweetReceivedMetric(tweets.length);
 
       // Process each tweet received from the stream data in batches
       if (tweets.length > 0) {

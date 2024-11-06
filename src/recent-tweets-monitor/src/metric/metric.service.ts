@@ -15,7 +15,7 @@ export class MetricsService {
 
   async publishTweetReceivedMetric(count: number): Promise<void> {
     const params: PutMetricDataCommandInput = {
-      Namespace: process.env.METRIC_NAMESPACE!, // Replace with your desired namespace
+      Namespace: process.env.METRIC_NAMESPACE!,
       MetricData: [
         {
           MetricName: 'TweetsReceived',
@@ -34,6 +34,7 @@ export class MetricsService {
 
     try {
       await this.cloudWatchClient.send(new PutMetricDataCommand(params));
+      this.logger.log('pushing metric');
     } catch (error) {
       // Handle error appropriately
       this.logger.error('Error publishing metric:', error);
