@@ -95,7 +95,6 @@ export class SocialMediaMonitoringStack extends Stack {
       },
       removalPolicy:
         stage === "live" ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
-      sortKey: { name: "ID", type: AttributeType.STRING },
       billingMode: BillingMode.PAY_PER_REQUEST,
     });
 
