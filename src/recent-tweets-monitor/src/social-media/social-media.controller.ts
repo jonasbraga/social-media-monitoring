@@ -1,8 +1,17 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  Logger,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { SocialMediaService } from './social-media.service';
 
 @Controller()
 export class SocialMediaController {
+  private readonly logger = new Logger(SocialMediaController.name);
+
   constructor(private readonly socialMediaService: SocialMediaService) {}
 
   @Get('/health')
@@ -12,9 +21,21 @@ export class SocialMediaController {
   }
 
   @Get('/tweets/consume/:hashtag')
-  async consumeTweets(@Param('hashtag') hashtag: string) {
+  consumeTweets(
+    @Param('hashtag') hashtag: string,
+    @Query('limit') limit?: number,
+    @Query('frequency') frequency?: number,
+    @Query('maxTweets') maxTweets?: number,
+  ) {
+    const requestOptions = {
+      limit,
+      frequency,
+      maxTweets,
+    };
+    this.logger.debug('Request options:', requestOptions);
+
     // Start consuming tweets asynchronously
-    this.socialMediaService.consumeTweets(hashtag);
+    this.socialMediaService.consumeTweets(hashtag, requestOptions);
     return { message: 'Started consuming tweets.' };
   }
 }
