@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   DynamoDBDocumentClient,
   BatchWriteCommand,
@@ -9,9 +9,12 @@ import { DynamoDbProvider } from './database/dynamodb.provider';
 
 @Injectable()
 export class SocialMediaRepository {
-  private readonly tableName = 'YourDynamoDBTableName'; // Replace with your actual table name
+  private readonly logger = new Logger(SocialMediaRepository.name);
+  private readonly tableName = process.env.TABLE_NAME!;
+  private BATCH_SIZE = 25;
 
   private readonly docClient: DynamoDBDocumentClient;
+  private counter = 0;
 
   constructor(private readonly dynamoDbProvider: DynamoDbProvider) {
     this.docClient = dynamoDbProvider.docClient;
@@ -29,44 +32,65 @@ export class SocialMediaRepository {
     return `${criteria}#${id}`;
   }
 
-  async batchCreate(dataArray: SocialMediaData[]): Promise<void> {
+  async batchInsertion(
+    dataArray: SocialMediaData[],
+    criteria: string,
+  ): Promise<void> {
     const requestId = this.generateRequestId();
+    this.counter += dataArray.length;
     const writeRequests = dataArray.map((data) => ({
       PutRequest: {
         Item: {
-          PK: this.constructPK(data.provider, requestId),
-          SK: this.constructSK('CRITERIA', data.id),
+          'PROVIDER#REQUEST_ID': this.constructPK(data.provider, requestId),
+          'CRITERIA#ID': this.constructSK(criteria, data.id),
           ...data,
         },
-        // Don't insert if the item already exists
-        ConditionExpression: 'attribute_not_exists(SK)',
+        ConditionExpression: 'attribute_not_exists(SK)', // Don't insert if the item already exists
       },
     }));
 
     const batches = [];
-    const batchSize = 25;
+    const maxConcurrentBatchesExecution = 10;
 
-    for (let i = 0; i < writeRequests.length; i += batchSize) {
-      const batch = writeRequests.slice(i, i + batchSize);
+    this.logger.log(`Creating batches of ${this.BATCH_SIZE} items`);
+    for (let i = 0; i < writeRequests.length; i += this.BATCH_SIZE) {
+      const batch = writeRequests.slice(i, i + this.BATCH_SIZE);
       batches.push(batch);
     }
 
-    for (const batch of batches) {
-      const params = {
-        RequestItems: {
-          [this.tableName]: batch,
-        },
-      };
-      try {
-        await this.docClient.send(new BatchWriteCommand(params));
-      } catch (error) {
-        if (error.name !== 'ConditionalCheckFailedException') {
-          throw error;
-        }
-        // Handle duplicate entries silently
-      }
-    }
-  }
+    this.logger.log(
+      `Creating batches of ${maxConcurrentBatchesExecution} insertion promises`,
+    );
+    for (let i = 0; i < batches.length; i += maxConcurrentBatchesExecution) {
+      const concurrentBatches = batches.slice(
+        i,
+        i + maxConcurrentBatchesExecution,
+      );
+      const concurrentPromises = concurrentBatches.map((batch) => {
+        const params = {
+          RequestItems: {
+            [this.tableName]: batch,
+          },
+        };
 
-  // Additional CRUD methods (read, update, delete)
+        // const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        // return sleep(Math.floor(Math.random() * 400) + 100);
+
+        return this.docClient
+          .send(new BatchWriteCommand(params))
+          .catch((error) => {
+            // Handle duplicate entries silently
+            if (error.name !== 'ConditionalCheckFailedException') {
+              this.logger.error('Error inserting items:', error);
+              // Ideally retry this specific batch (DLQ)
+              throw error;
+            }
+          });
+      });
+      // Wait for this set of concurrent batches to complete before starting the next set
+      await Promise.all(concurrentPromises);
+    }
+    this.logger.log(`Inserted ${writeRequests.length} items`);
+    this.logger.log(`Total of ${this.counter} items inserted so far`);
+  }
 }

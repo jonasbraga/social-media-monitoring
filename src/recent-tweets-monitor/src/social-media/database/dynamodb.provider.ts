@@ -7,7 +7,7 @@ export class DynamoDbProvider {
   public readonly docClient: DynamoDBDocumentClient;
 
   constructor() {
-    const client = new DynamoDBClient({});
+    const client = new DynamoDBClient({ region: process.env.REGION });
     const marshallOptions = { removeUndefinedValues: true };
     const unmarshallOptions = { wrapNumbers: false };
     const translateConfig = { marshallOptions, unmarshallOptions };
