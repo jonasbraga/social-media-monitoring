@@ -77,12 +77,12 @@ export class SocialMediaMonitoringStack extends Stack {
       {
         tableName: `social-media-data-table-${stage}`,
         partitionKey: {
-          name: "PROVIDER#REQUEST_ID",
+          name: "PROVIDER#CRITERIA",
           type: AttributeType.STRING,
         },
         removalPolicy:
           stage === "live" ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
-        sortKey: { name: "CRITERIA#ID", type: AttributeType.STRING },
+        sortKey: { name: "ID", type: AttributeType.STRING },
         billingMode: BillingMode.PAY_PER_REQUEST,
       }
     );

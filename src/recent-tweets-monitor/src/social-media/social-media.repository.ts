@@ -3,7 +3,7 @@ import {
   DynamoDBDocumentClient,
   BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { ulid } from 'ulid';
+import { monotonicFactory } from 'ulid';
 import { SocialMediaData } from './interfaces/social-media-data.interface';
 import { DynamoDbProvider } from './database/dynamodb.provider';
 
@@ -20,16 +20,14 @@ export class SocialMediaRepository {
     this.docClient = dynamoDbProvider.docClient;
   }
 
-  private generateRequestId(): string {
-    return ulid();
+  ulid = monotonicFactory();
+
+  private generateSortedId(): string {
+    return this.ulid(new Date().getTime());
   }
 
-  private constructPK(provider: string, requestId: string): string {
-    return `${provider}#${requestId}`;
-  }
-
-  private constructSK(criteria: string, id: string): string {
-    return `${criteria}#${id}`;
+  private constructPK(provider: string, criteria: string): string {
+    return `${provider}#${criteria}`;
   }
 
   async batchInsertion(
@@ -41,9 +39,10 @@ export class SocialMediaRepository {
     const writeRequests = dataArray.map((data) => ({
       PutRequest: {
         Item: {
-          'PROVIDER#REQUEST_ID': this.constructPK(data.provider, requestId),
-          'CRITERIA#ID': this.constructSK(criteria, data.id),
+          'PROVIDER#CRITERIA': this.constructPK(data.provider, criteria),
+          ID: this.generateSortedId(),
           ...data,
+          timestamp: new Date().getTime(),
         },
         ConditionExpression: 'attribute_not_exists(SK)', // Don't insert if the item already exists
       },
