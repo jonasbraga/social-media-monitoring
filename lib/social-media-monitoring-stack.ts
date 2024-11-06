@@ -294,12 +294,15 @@ export class SocialMediaMonitoringStack extends Stack {
       listener: ListenerConfig.applicationListener(albListener, {
         healthCheck: {
           enabled: true,
-          path: "/health",
+          path: "/consumer/health",
         },
         protocol: ApplicationProtocol.HTTP,
         conditions: [
           ListenerCondition.httpRequestMethods(["GET"]),
-          ListenerCondition.pathPatterns(["/tweets/consume/*", "/health"]),
+          ListenerCondition.pathPatterns([
+            "/tweets/consume/*",
+            "/consumer/health",
+          ]),
         ],
         priority: 10,
       }),
@@ -312,14 +315,14 @@ export class SocialMediaMonitoringStack extends Stack {
       listener: ListenerConfig.applicationListener(albListener, {
         healthCheck: {
           enabled: true,
-          path: "/health",
+          path: "/publisher/health",
         },
         protocol: ApplicationProtocol.HTTP,
         conditions: [
           ListenerCondition.httpRequestMethods(["GET"]),
           ListenerCondition.pathPatterns([
             "/tweets/search/stream/*",
-            "/health",
+            "/publisher/health",
           ]),
         ],
         priority: 20,

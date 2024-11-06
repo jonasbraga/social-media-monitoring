@@ -6,7 +6,7 @@ import { Response } from 'express';
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
-  @Get('/health')
+  @Get('/publisher/health')
   @HttpCode(200)
   getHealth() {
     return { status: 'UP Publisher' };
@@ -38,7 +38,7 @@ export class AppController {
       }
 
       const tweets = this.appService.getTweets(finalMaxTweets);
-      console.log('Sending tweets:', tweets);
+      console.log(`Sending ${tweets.length} tweets`);
       res.write(JSON.stringify(tweets) + '\n');
       count++;
     }, finalFrequency);
