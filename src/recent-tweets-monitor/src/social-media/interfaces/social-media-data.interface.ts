@@ -1,8 +1,8 @@
-export interface SocialMediaData {
+export interface TweetSocialMediaData {
   provider: string;
-  id: string; // ID from the social media platform
+  tweetId: string; // ID from the social media platform
   text: string;
-  author_id: string;
-  created_at: string;
+  authorId: string;
+  createdAt: string;
   extraData?: Record<string, any>; // For additional data
 }

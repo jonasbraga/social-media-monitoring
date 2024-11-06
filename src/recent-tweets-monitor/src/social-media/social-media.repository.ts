@@ -4,7 +4,7 @@ import {
   BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { monotonicFactory } from 'ulid';
-import { SocialMediaData } from './interfaces/social-media-data.interface';
+import { TweetSocialMediaData } from './interfaces/social-media-data.interface';
 import { DynamoDbProvider } from './database/dynamodb.provider';
 
 @Injectable()
@@ -31,10 +31,9 @@ export class SocialMediaRepository {
   }
 
   async batchInsertion(
-    dataArray: SocialMediaData[],
+    dataArray: TweetSocialMediaData[],
     criteria: string,
   ): Promise<void> {
-    const requestId = this.generateRequestId();
     this.counter += dataArray.length;
     const writeRequests = dataArray.map((data) => ({
       PutRequest: {

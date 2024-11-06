@@ -1,7 +1,7 @@
 // src/social-media/social-media.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { SocialMediaRepository } from './social-media.repository';
-import { SocialMediaData } from './interfaces/social-media-data.interface';
+import { TweetSocialMediaData } from './interfaces/social-media-data.interface';
 import axios, { AxiosResponse } from 'axios';
 import { TwitterAdapter } from './adapters/twitter.adapter';
 
@@ -35,7 +35,7 @@ export class SocialMediaService {
         },
       );
 
-      const tweetsBuffer: Omit<SocialMediaData, 'provider'>[] = [];
+      const tweetsBuffer: Omit<TweetSocialMediaData, 'provider'>[] = [];
 
       // Event Handlers
       const onData = this.handleDataEvent.bind(this, tweetsBuffer, hashtag);
@@ -61,7 +61,7 @@ export class SocialMediaService {
   }
 
   private async handleDataEvent(
-    tweetsBuffer: Omit<SocialMediaData, 'provider'>[],
+    tweetsBuffer: Omit<TweetSocialMediaData, 'provider'>[],
     hashtag: string,
     tweetsChunk: Buffer,
   ): Promise<void> {
@@ -91,7 +91,7 @@ export class SocialMediaService {
   }
 
   private async handleErrorEvent(
-    tweetsBuffer: Omit<SocialMediaData, 'provider'>[],
+    tweetsBuffer: Omit<TweetSocialMediaData, 'provider'>[],
     hashtag: string,
     response: AxiosResponse,
     error: any,
@@ -102,7 +102,7 @@ export class SocialMediaService {
   }
 
   private async handleEndEvent(
-    tweetsBuffer: Omit<SocialMediaData, 'provider'>[],
+    tweetsBuffer: Omit<TweetSocialMediaData, 'provider'>[],
     hashtag: string,
   ): Promise<void> {
     this.logger.warn('Stream ended.');
@@ -110,7 +110,7 @@ export class SocialMediaService {
   }
 
   private async handleStreamEnd(
-    tweetsBuffer: Omit<SocialMediaData, 'provider'>[],
+    tweetsBuffer: Omit<TweetSocialMediaData, 'provider'>[],
     hashtag: string,
     reconnect: boolean = false,
   ): Promise<void> {
@@ -143,7 +143,7 @@ export class SocialMediaService {
   }
 
   async addTweets(
-    dataArray: Omit<SocialMediaData, 'provider'>[],
+    dataArray: Omit<TweetSocialMediaData, 'provider'>[],
     hashtag: string,
   ): Promise<void> {
     const dataWithProvider = dataArray.map((data) => ({
