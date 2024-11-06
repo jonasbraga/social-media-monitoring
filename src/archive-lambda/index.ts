@@ -1,176 +1,72 @@
-import {
-  DynamoDBClient,
-  QueryCommand,
-  BatchWriteItemCommand,
-} from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Handler } from "aws-lambda";
+import { stringify } from "csv-stringify/sync";
+import itemCountTable from "./db/item-count-table";
+import socialMediaTable from "./db/social-media-table";
 
-const dynamoDBClient = new DynamoDBClient({});
-const ddbDocClient = DynamoDBDocumentClient.from(dynamoDBClient);
-const s3Client = new S3Client({});
+const s3Client = new S3Client({ region: process.env.REGION });
 
-const TABLE_NAME = process.env.TABLE_NAME!;
-const PK = process.env.PK!;
-const SK = process.env.SK!;
-const PARTITION_KEY_VALUE = process.env.PARTITION_KEY_VALUE!;
-const S3_BUCKET = process.env.S3_BUCKET!;
+const THRESHOLD = 100; // Predefined threshold
 
-export const handler: Handler = async (event) => {
+export const handler: Handler = async (event, context) => {
   try {
-    // Step 1: Get the count of items for the specified PK
-    const countParams = {
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "#pk = :pk",
-      ExpressionAttributeNames: {
-        "#pk": PK,
-      },
-      ExpressionAttributeValues: {
-        ":pk": PARTITION_KEY_VALUE,
-      },
-      Select: "COUNT",
-    };
+    console.log("Lambda invoked with event:", JSON.stringify(event));
 
-    const countResult = await ddbDocClient.send(new QueryCommand(countParams));
-    const itemCount = countResult.Count || 0;
+    // Query ItemCountTable for items that exceed the threshold
+    const scanResult = await itemCountTable.searchExceedHashtags(THRESHOLD);
+    console.log("Scan result:", scanResult);
 
-    console.log(`Total items for PK=${PARTITION_KEY_VALUE}: ${itemCount}`);
+    const itemsToProcess = scanResult.Items || [];
 
-    // Step 2: Check if itemCount > 100,000
-    if (itemCount > 100000) {
-      const numberToArchive = itemCount - 100000;
-      console.log(`Number of items to archive: ${numberToArchive}`);
+    for (const item of itemsToProcess) {
+      const pk = item["PROVIDER#CRITERIA"]!;
+      const itemCount = item.ItemCount!;
+      console.log(`Processing PK: ${pk}, ItemCount: ${itemCount}`);
 
-      // Step 3: Query and process items to archive and delete
-      let lastEvaluatedKey: any = undefined;
-      let totalItemsRetrieved = 0;
-      const MAX_BATCH_SIZE = 25; // For BatchWriteItem
-      const MAX_ITEMS_PER_BATCH = 1000; // Adjust as needed
-      const itemsToArchive: any[] = [];
+      const numToArchive = itemCount - THRESHOLD;
 
-      do {
-        const limit = Math.min(1000, numberToArchive - totalItemsRetrieved);
-        const queryParams = {
-          TableName: TABLE_NAME,
-          KeyConditionExpression: "#pk = :pk",
-          ExpressionAttributeNames: {
-            "#pk": PK,
-          },
-          ExpressionAttributeValues: {
-            ":pk": PARTITION_KEY_VALUE,
-          },
-          ScanIndexForward: true, // Get oldest items first
-          Limit: limit,
-          ExclusiveStartKey: lastEvaluatedKey,
-        };
-
-        const queryResult = await ddbDocClient.send(
-          new QueryCommand(queryParams)
-        );
-        const items = queryResult.Items || [];
-        totalItemsRetrieved += items.length;
-
-        console.log(
-          `Retrieved ${items.length} items, total retrieved: ${totalItemsRetrieved}`
-        );
-
-        // Add items to the list for archiving and deleting
-        itemsToArchive.push(...items);
-
-        lastEvaluatedKey = queryResult.LastEvaluatedKey;
-
-        // Process items if batch size reached or all items retrieved
-        if (
-          itemsToArchive.length >= MAX_ITEMS_PER_BATCH ||
-          totalItemsRetrieved >= numberToArchive
-        ) {
-          console.log(`Processing batch of ${itemsToArchive.length} items`);
-
-          // Archive items to S3
-          await archiveItemsToS3(itemsToArchive);
-
-          // Delete items from DynamoDB
-          await deleteItemsFromDynamoDB(itemsToArchive);
-
-          // Clear the items array
-          itemsToArchive.length = 0;
-        }
-      } while (lastEvaluatedKey && totalItemsRetrieved < numberToArchive);
-
-      // Process any remaining items
-      if (itemsToArchive.length > 0) {
-        console.log(`Processing final batch of ${itemsToArchive.length} items`);
-
-        await archiveItemsToS3(itemsToArchive);
-        await deleteItemsFromDynamoDB(itemsToArchive);
+      if (numToArchive <= 0) {
+        console.log(`No items to archive for PK: ${pk}`);
+        continue;
       }
 
-      console.log(`Archiving and deletion completed`);
-    } else {
-      console.log(
-        `Item count (${itemCount}) is less than or equal to 100,000. No action needed.`
+      // For each item that exceeds the threshold, query the SocialMediaTable for the items to archive
+      const items = await socialMediaTable.queryExeceededItems(
+        pk,
+        numToArchive
       );
+      console.log(`Queried ${items.length} items to archive for PK: ${pk}`);
+
+      // Archive items to S3 in CSV format
+      // TODO: use streams, querying items and writting to S3 on demand
+      const csvData = stringify(items, { header: true });
+      const timestamp = new Date().getTime();
+      const fileName = `archive/${pk}/${timestamp}.csv`;
+
+      const putObjectCommand = new PutObjectCommand({
+        Bucket: process.env.BUCKET_NAME,
+        Key: fileName,
+        Body: csvData,
+        ContentType: "text/csv",
+      });
+
+      await s3Client.send(putObjectCommand);
+      console.log(`Archived data to S3 at ${fileName}`);
+
+      // Delete archived items from SocialMediaTable
+      socialMediaTable.deleteArchivedItems(items);
+      console.log(
+        `Deleted ${items.length} items from SocialMediaTable for PK: ${pk}`
+      );
+      // Update ItemCountTable with the new item count
+      itemCountTable.subtractDeletedItems(pk, numToArchive);
+      console.log(`Updated ItemCount for PK: ${pk} to ${THRESHOLD}`);
     }
+
+    console.log("Lambda execution completed");
+    return { statusCode: 200, body: JSON.stringify({ message: "Success" }) };
   } catch (error) {
-    console.error("Error:", error);
-    throw error;
+    console.error("Lambda execution failed:", error);
+    return { statusCode: 500, body: JSON.stringify({ message: "Failed" }) };
   }
 };
-
-async function archiveItemsToS3(items: any[]) {
-  // Convert items to JSON string
-  const data = JSON.stringify(items);
-
-  // Generate a unique S3 object key
-  const timestamp = new Date().toISOString();
-  const s3Key = `archive/${PARTITION_KEY_VALUE}/${timestamp}.json`;
-
-  const putParams = {
-    Bucket: S3_BUCKET,
-    Key: s3Key,
-    Body: data,
-    ContentType: "application/json",
-  };
-
-  try {
-    await s3Client.send(new PutObjectCommand(putParams));
-    console.log(`Archived ${items.length} items to S3: ${s3Key}`);
-  } catch (error) {
-    console.error(`Failed to archive items to S3: ${error}`);
-    throw error;
-  }
-}
-
-async function deleteItemsFromDynamoDB(items: any[]) {
-  const MAX_BATCH_SIZE = 25;
-  let batches: any[] = [];
-  for (let i = 0; i < items.length; i += MAX_BATCH_SIZE) {
-    batches.push(items.slice(i, i + MAX_BATCH_SIZE));
-  }
-
-  for (const batch of batches) {
-    const deleteRequests = batch.map((item) => ({
-      DeleteRequest: {
-        Key: {
-          [PK]: item[PK],
-          [SK]: item[SK],
-        },
-      },
-    }));
-
-    const params = {
-      RequestItems: {
-        [TABLE_NAME]: deleteRequests,
-      },
-    };
-
-    try {
-      await ddbDocClient.send(new BatchWriteItemCommand(params));
-      console.log(`Deleted ${deleteRequests.length} items from DynamoDB`);
-    } catch (error) {
-      console.error(`Failed to delete items from DynamoDB: ${error}`);
-      throw error;
-    }
-  }
-}
