@@ -1,17 +1,10 @@
 import { Construct } from "constructs";
-import { Stack, StackProps, Duration, RemovalPolicy } from "aws-cdk-lib";
-import {
-  Vpc,
-  InstanceClass,
-  InstanceSize,
-  InstanceType,
-  SecurityGroup,
-  AmazonLinuxGeneration,
-  AmazonLinuxImage,
-} from "aws-cdk-lib/aws-ec2";
+import { Stack, StackProps, Duration, RemovalPolicy, Size } from "aws-cdk-lib";
+import { Vpc, SecurityGroup, Port } from "aws-cdk-lib/aws-ec2";
 import {
   ApplicationLoadBalancer,
   ApplicationProtocol,
+  ListenerAction,
   ListenerCondition,
 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { AttributeType, BillingMode, Table } from "aws-cdk-lib/aws-dynamodb";
@@ -34,15 +27,19 @@ import { RetentionDays } from "aws-cdk-lib/aws-logs";
 import { join } from "path";
 import {
   Cluster,
-  Ec2Service,
-  Ec2TaskDefinition,
+  FargateService,
+  FargateTaskDefinition,
   ContainerImage,
-  NetworkMode,
   ListenerConfig,
+  LogDrivers,
+  AwsLogDriverMode,
 } from "aws-cdk-lib/aws-ecs";
-import { DockerImageAsset } from "aws-cdk-lib/aws-ecr-assets";
-import { AutoScalingGroup } from "aws-cdk-lib/aws-autoscaling";
-import { AsgCapacityProvider } from "aws-cdk-lib/aws-ecs";
+import {
+  DockerImageAsset,
+  NetworkMode,
+  Platform,
+} from "aws-cdk-lib/aws-ecr-assets";
+import { Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
 
 interface SocialMediaMonitoringStackProps extends StackProps {
   stage: string;
@@ -57,8 +54,10 @@ export class SocialMediaMonitoringStack extends Stack {
     super(scope, id, props);
 
     const stage = props.stage || "dev";
+    const applicationPort = 3000;
+
     // Use default account VPC
-    const vpc = Vpc.fromLookup(this, `${id}-DefaultVpc`, { isDefault: true });
+    const vpc = Vpc.fromLookup(this, `${id}-default-vpc`, { isDefault: true });
 
     // Custom Metric for Tweet Count
     const tweetCountMetric = new Metric({
@@ -81,6 +80,8 @@ export class SocialMediaMonitoringStack extends Stack {
           name: "PROVIDER#REQUEST_ID",
           type: AttributeType.STRING,
         },
+        removalPolicy:
+          stage === "live" ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
         sortKey: { name: "CRITERIA#ID", type: AttributeType.STRING },
         billingMode: BillingMode.PAY_PER_REQUEST,
       }
@@ -95,49 +96,85 @@ export class SocialMediaMonitoringStack extends Stack {
 
     // Application Load Balancer
     const alb = new ApplicationLoadBalancer(this, `${id}-alb`, {
+      loadBalancerName: "alb",
       vpc,
       internetFacing: true,
     });
 
+    // ALB Listener on port 80 (HTTP) for public access without port in URL
     const albListener = alb.addListener(`${id}-listener`, {
       port: 80,
       open: true,
     });
 
-    // ECS Cluster
-    const cluster = new Cluster(this, `${id}-cluster`, {
-      vpc,
-    });
-
-    // Auto Scaling Group for ECS Cluster Capacity
-    const asg = new AutoScalingGroup(this, `${id}-asg`, {
-      vpc,
-      instanceType: InstanceType.of(InstanceClass.T3, InstanceSize.MICRO),
-      machineImage: new AmazonLinuxImage({
-        generation: AmazonLinuxGeneration.AMAZON_LINUX_2023,
+    // Default action for unmatched requests
+    albListener.addAction(`${id}-default-action`, {
+      action: ListenerAction.fixedResponse(200, {
+        contentType: "text/plain",
+        messageBody: "Default action",
       }),
-      desiredCapacity: 2,
-      minCapacity: 2,
-      maxCapacity: 4,
     });
 
-    const capacityProvider = new AsgCapacityProvider(
+    // ECS Services with updated security groups
+
+    const consumerSecurityGroup = new SecurityGroup(this, `${id}-consumer-sg`, {
+      vpc,
+      description: "Security group for consumer service",
+      allowAllOutbound: true,
+    });
+
+    const publisherSecurityGroup = new SecurityGroup(
       this,
-      `${id}-asg-capacity-provider`,
+      `${id}-publisher-sg`,
       {
-        autoScalingGroup: asg,
+        vpc,
+        description: "Security group for publisher service",
+        allowAllOutbound: true,
       }
     );
 
-    cluster.addAsgCapacityProvider(capacityProvider);
+    // Allow ALB to communicate with tasks on the application port
+    const albSecurityGroup = alb.connections.securityGroups[0];
+
+    publisherSecurityGroup.connections.allowFrom(
+      albSecurityGroup,
+      Port.tcp(applicationPort), // Allow traffic on the application port only
+      "Allow ALB to reach publisher tasks on port " + applicationPort
+    );
+    consumerSecurityGroup.connections.allowFrom(
+      albSecurityGroup,
+      Port.tcp(applicationPort), // Allow traffic on the application port only
+      "Allow ALB to reach consumer tasks on port " + applicationPort
+    );
+
+    // Allow consumer to connect to publisher on the application port
+    publisherSecurityGroup.connections.allowFrom(
+      consumerSecurityGroup,
+      Port.tcp(applicationPort),
+      "Allow consumer to connect to publisher on port" + applicationPort
+    );
+
+    // ECS Cluster
+    const cluster = new Cluster(this, `${id}-cluster`, {
+      clusterName: `${id}-cluster`,
+      vpc,
+    });
+
+    // Service Discovery Namespace
+    const namespace = cluster.addDefaultCloudMapNamespace({
+      name: "service.local",
+    });
 
     // Build Docker images using DockerImageAsset
     const consumerImageAsset = new DockerImageAsset(
       this,
       `${id}-consumer-image`,
       {
+        assetName: `${id}-consumer-image`,
         directory: join(__dirname, "../src/recent-tweets-monitor"),
         target: stage === "live" ? "production" : "development",
+        networkMode: NetworkMode.HOST,
+        platform: Platform.LINUX_AMD64,
       }
     );
 
@@ -147,72 +184,122 @@ export class SocialMediaMonitoringStack extends Stack {
       {
         directory: join(__dirname, "../src/x-api-mock-server"),
         target: stage === "live" ? "production" : "development",
+        networkMode: NetworkMode.HOST,
+        platform: Platform.LINUX_AMD64,
       }
     );
 
     // ECS Task Definitions
-    const consumerTaskDefinition = new Ec2TaskDefinition(
+    const consumerTaskDefinition = new FargateTaskDefinition(
       this,
       `${id}-consumer-task-def`,
       {
-        networkMode: NetworkMode.AWS_VPC,
+        cpu: 256,
+        memoryLimitMiB: 512,
       }
     );
 
-    consumerTaskDefinition
-      .addContainer(`${id}-consumer-container`, {
-        image: ContainerImage.fromDockerImageAsset(consumerImageAsset),
-        memoryLimitMiB: 512,
-        environment: {
-          STAGE: stage,
-          TABLE_NAME: socialMediaDataTable.tableName,
-          METRIC_NAMESPACE: tweetCountMetric.namespace,
-        },
-      })
-      .addPortMappings({
-        containerPort: 80,
-      });
+    const publisherCloudMapName = "publisher";
+    const publisherInternalEndpoint = `http://${publisherCloudMapName}.${namespace.namespaceName}:${applicationPort}`;
 
-    const publisherTaskDefinition = new Ec2TaskDefinition(
+    consumerTaskDefinition.addContainer(`${id}-consumer-container`, {
+      image: ContainerImage.fromDockerImageAsset(consumerImageAsset),
+      portMappings: [{ containerPort: applicationPort }], // Map container's application port to host
+      logging: LogDrivers.awsLogs({
+        streamPrefix: "consumer-logs",
+        mode: AwsLogDriverMode.NON_BLOCKING,
+        maxBufferSize: Size.mebibytes(25),
+        logRetention:
+          stage === "live" ? RetentionDays.FIVE_DAYS : RetentionDays.ONE_DAY,
+      }),
+
+      environment: {
+        PORT: `${applicationPort}`,
+        STAGE: stage,
+        TABLE_NAME: socialMediaDataTable.tableName,
+        METRIC_NAMESPACE: tweetCountMetric.namespace,
+        // For now only internal endpoint is supported
+        PUBLISHER_ENDPOINT:
+          stage === "live"
+            ? publisherInternalEndpoint
+            : publisherInternalEndpoint,
+      },
+    });
+
+    const publisherTaskDefinition = new FargateTaskDefinition(
       this,
       `${id}-publisher-task-def`,
       {
-        networkMode: NetworkMode.AWS_VPC,
+        cpu: 256,
+        memoryLimitMiB: 512,
       }
     );
 
-    publisherTaskDefinition
-      .addContainer(`${id}-publisher-container`, {
-        image: ContainerImage.fromDockerImageAsset(publisherImageAsset),
-        memoryLimitMiB: 512,
-      })
-      .addPortMappings({
-        containerPort: 80,
-      });
+    publisherTaskDefinition.addContainer(`${id}-publisher-container`, {
+      image: ContainerImage.fromDockerImageAsset(publisherImageAsset),
+      portMappings: [{ containerPort: applicationPort }], // Map container's application port to host
+      logging: LogDrivers.awsLogs({
+        streamPrefix: "publisher-logs",
+        mode: AwsLogDriverMode.NON_BLOCKING,
+        maxBufferSize: Size.mebibytes(25),
+        logRetention:
+          stage === "live" ? RetentionDays.FIVE_DAYS : RetentionDays.ONE_DAY,
+      }),
+      environment: {
+        PORT: `${applicationPort}`, // Application listens on the application port
+        STAGE: stage,
+      },
+    });
 
     // ECS Services
-    const consumerService = new Ec2Service(this, `${id}-consumer-service`, {
+    const consumerService = new FargateService(this, `${id}-consumer-service`, {
+      serviceName: `${id}-consumer-service`,
+      healthCheckGracePeriod: Duration.seconds(120),
       cluster,
       taskDefinition: consumerTaskDefinition,
       desiredCount: 1,
+      assignPublicIp: true,
+      securityGroups: [consumerSecurityGroup],
+      circuitBreaker: {
+        rollback: true,
+      },
     });
 
-    const publisherService = new Ec2Service(this, `${id}-publisher-service`, {
-      cluster,
-      taskDefinition: publisherTaskDefinition,
-      desiredCount: 1,
-    });
+    const publisherService = new FargateService(
+      this,
+      `${id}-publisher-service`,
+      {
+        serviceName: `${id}-publisher-service`,
+        cluster,
+        healthCheckGracePeriod: Duration.seconds(120),
+        taskDefinition: publisherTaskDefinition,
+        desiredCount: 1,
+        assignPublicIp: true,
+        securityGroups: [publisherSecurityGroup],
+        cloudMapOptions: {
+          name: publisherCloudMapName,
+          cloudMapNamespace: namespace,
+        },
+        circuitBreaker: {
+          rollback: true,
+        },
+      }
+    );
 
     // Register ECS services with ALB
     consumerService.registerLoadBalancerTargets({
       containerName: `${id}-consumer-container`,
-      containerPort: 80,
-      newTargetGroupId: "consumerTG",
+      containerPort: applicationPort, // Target container port
+      newTargetGroupId: `${id}-consumer-tg`,
       listener: ListenerConfig.applicationListener(albListener, {
+        healthCheck: {
+          enabled: true,
+          path: "/health",
+        },
         protocol: ApplicationProtocol.HTTP,
         conditions: [
           ListenerCondition.httpRequestMethods(["GET"]),
-          ListenerCondition.pathPatterns(["/tweets/consume/*"]),
+          ListenerCondition.pathPatterns(["/tweets/consume/*", "/health"]),
         ],
         priority: 10,
       }),
@@ -220,17 +307,37 @@ export class SocialMediaMonitoringStack extends Stack {
 
     publisherService.registerLoadBalancerTargets({
       containerName: `${id}-publisher-container`,
-      containerPort: 80,
-      newTargetGroupId: "publisherTG",
+      containerPort: applicationPort, // Target container port
+      newTargetGroupId: `${id}-publisher-tg`,
       listener: ListenerConfig.applicationListener(albListener, {
+        healthCheck: {
+          enabled: true,
+          path: "/health",
+        },
         protocol: ApplicationProtocol.HTTP,
         conditions: [
           ListenerCondition.httpRequestMethods(["GET"]),
-          ListenerCondition.pathPatterns(["/tweets/search/stream/*"]),
+          ListenerCondition.pathPatterns([
+            "/tweets/search/stream/*",
+            "/health",
+          ]),
         ],
         priority: 20,
       }),
     });
+
+    // Permissions for ECS consumer task
+    socialMediaDataTable.grantWriteData(consumerTaskDefinition.taskRole);
+    consumerTaskDefinition.taskRole.attachInlinePolicy(
+      new Policy(this, `${id}-consumer-task-policy`, {
+        statements: [
+          new PolicyStatement({
+            resources: ["*"],
+            actions: ["cloudwatch:PutMetricData"],
+          }),
+        ],
+      })
+    );
 
     // Lambda Function for Archiving
     const archiveLambda = new NodejsFunction(this, `${id}-archive-lambda`, {
@@ -242,11 +349,11 @@ export class SocialMediaMonitoringStack extends Stack {
         externalModules: [
           "@aws-sdk/*", // Exclude AWS SDK from the bundle, it's already available in the Lambda runtime
         ],
+        esbuildArgs: { "--packages": "bundle" },
       },
       functionName: `archive-tweets-lambda-${stage}`,
       environment: {
         STAGE: stage,
-        REGION: this.region,
         BUCKET_NAME: archiveBucket.bucketName,
         TABLE_NAME: socialMediaDataTable.tableName,
       },
@@ -310,7 +417,7 @@ export class SocialMediaMonitoringStack extends Stack {
     });
 
     // Email Subscription for Alarms
-    const emails = ["your-email@example.com"];
+    const emails = ["jonasbraga2001+aws_alarms@gmail.com"];
     emails.forEach((email) => {
       snsAlarmTopic.addSubscription(new EmailSubscription(email));
     });
