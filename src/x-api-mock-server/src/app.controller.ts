@@ -1,17 +1,16 @@
-import {
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  Query,
-  Res,
-} from '@nestjs/common';
+import { Controller, Get, HttpCode, Param, Query, Res } from '@nestjs/common';
 import { AppService } from './app.service';
 import { Response } from 'express';
 
 @Controller()
 export class AppController {
   constructor(private readonly appService: AppService) {}
+
+  @Get('/health')
+  @HttpCode(200)
+  getHealth() {
+    return { status: 'UP Publisher' };
+  }
 
   @Get('/tweets/search/stream/:hashtag')
   streamTweets(
