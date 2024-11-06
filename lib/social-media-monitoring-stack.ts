@@ -33,6 +33,7 @@ import {
   ListenerConfig,
   LogDrivers,
   AwsLogDriverMode,
+  DeploymentControllerType,
 } from "aws-cdk-lib/aws-ecs";
 import {
   DockerImageAsset,
@@ -272,6 +273,9 @@ export class SocialMediaMonitoringStack extends Stack {
       desiredCount: 1,
       assignPublicIp: true,
       securityGroups: [consumerSecurityGroup],
+      deploymentController: {
+        type: DeploymentControllerType.ECS,
+      },
       circuitBreaker: {
         rollback: true,
       },
@@ -291,6 +295,9 @@ export class SocialMediaMonitoringStack extends Stack {
         cloudMapOptions: {
           name: publisherCloudMapName,
           cloudMapNamespace: namespace,
+        },
+        deploymentController: {
+          type: DeploymentControllerType.ECS,
         },
         circuitBreaker: {
           rollback: true,
@@ -372,7 +379,7 @@ export class SocialMediaMonitoringStack extends Stack {
         STAGE: stage,
         BUCKET_NAME: archiveBucket.bucketName,
         SOCIAL_MEDIA_TABLE_NAME: socialMediaDataTable.tableName,
-        ITEM_COUNT_TABLE_NAME: itemCountTable.tableName,
+        ITEMS_COUNT_TABLE_NAME: itemCountTable.tableName,
       },
       handler: "handler",
       entry: join(__dirname, "../src/archive-lambda/index.ts"),
