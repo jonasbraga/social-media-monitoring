@@ -1,7 +1,7 @@
 import { TweetSocialMediaData } from '../interfaces/social-media-data.interface';
 
 export class TwitterAdapter {
-  static toSocialMediaData(tweet: any): Omit<TweetSocialMediaData, 'provider'> {
+  static toSocialMediaData(tweet: any): TweetSocialMediaData {
     return {
       tweetId: tweet.id,
       text: tweet.text,

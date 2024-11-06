@@ -35,7 +35,7 @@ export class SocialMediaService {
         },
       );
 
-      const tweetsBuffer: Omit<TweetSocialMediaData, 'provider'>[] = [];
+      const tweetsBuffer: TweetSocialMediaData[] = [];
 
       // Event Handlers
       const onData = this.handleDataEvent.bind(this, tweetsBuffer, hashtag);
@@ -61,7 +61,7 @@ export class SocialMediaService {
   }
 
   private async handleDataEvent(
-    tweetsBuffer: Omit<TweetSocialMediaData, 'provider'>[],
+    tweetsBuffer: TweetSocialMediaData[],
     hashtag: string,
     tweetsChunk: Buffer,
   ): Promise<void> {
@@ -91,7 +91,7 @@ export class SocialMediaService {
   }
 
   private async handleErrorEvent(
-    tweetsBuffer: Omit<TweetSocialMediaData, 'provider'>[],
+    tweetsBuffer: TweetSocialMediaData[],
     hashtag: string,
     response: AxiosResponse,
     error: any,
@@ -102,7 +102,7 @@ export class SocialMediaService {
   }
 
   private async handleEndEvent(
-    tweetsBuffer: Omit<TweetSocialMediaData, 'provider'>[],
+    tweetsBuffer: TweetSocialMediaData[],
     hashtag: string,
   ): Promise<void> {
     this.logger.warn('Stream ended.');
@@ -110,7 +110,7 @@ export class SocialMediaService {
   }
 
   private async handleStreamEnd(
-    tweetsBuffer: Omit<TweetSocialMediaData, 'provider'>[],
+    tweetsBuffer: TweetSocialMediaData[],
     hashtag: string,
     reconnect: boolean = false,
   ): Promise<void> {
@@ -143,15 +143,11 @@ export class SocialMediaService {
   }
 
   async addTweets(
-    dataArray: Omit<TweetSocialMediaData, 'provider'>[],
+    dataArray: TweetSocialMediaData[],
     hashtag: string,
   ): Promise<void> {
-    const dataWithProvider = dataArray.map((data) => ({
-      ...data,
-      provider: 'twitter',
-    }));
-    this.logger.log(`Saving ${dataWithProvider.length} tweets...`);
-    await this.repository.batchInsertion(dataWithProvider, hashtag);
+    this.logger.log(`Saving ${dataArray.length} tweets...`);
+    await this.repository.batchInsertion('twitter', dataArray, hashtag);
   }
 
   private extractCompleteArraysFromBuffer(): any[] {

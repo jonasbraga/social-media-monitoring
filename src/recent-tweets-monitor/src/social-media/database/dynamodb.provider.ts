@@ -1,16 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocument } from '@aws-sdk/lib-dynamodb';
 
 @Injectable()
 export class DynamoDbProvider {
-  public readonly docClient: DynamoDBDocumentClient;
+  public readonly docClient: DynamoDBDocument;
 
   constructor() {
     const client = new DynamoDBClient({ region: process.env.REGION });
     const marshallOptions = { removeUndefinedValues: true };
     const unmarshallOptions = { wrapNumbers: false };
     const translateConfig = { marshallOptions, unmarshallOptions };
-    this.docClient = DynamoDBDocumentClient.from(client, translateConfig);
+    this.docClient = DynamoDBDocument.from(client, translateConfig);
   }
 }

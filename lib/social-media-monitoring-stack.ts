@@ -70,7 +70,7 @@ export class SocialMediaMonitoringStack extends Stack {
       },
     });
 
-    // DynamoDB Table
+    // DynamoDB Tables
     const socialMediaDataTable = new Table(
       this,
       `${id}-social-media-data-table`,
@@ -86,6 +86,18 @@ export class SocialMediaMonitoringStack extends Stack {
         billingMode: BillingMode.PAY_PER_REQUEST,
       }
     );
+
+    const itemCountTable = new Table(this, `${id}-item-count-table`, {
+      tableName: `item-count-table-${stage}`,
+      partitionKey: {
+        name: "PROVIDER#CRITERIA",
+        type: AttributeType.STRING,
+      },
+      removalPolicy:
+        stage === "live" ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+      sortKey: { name: "ID", type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+    });
 
     // S3 Bucket
     const archiveBucket = new Bucket(this, `${id}-archive-bucket`, {
@@ -216,7 +228,8 @@ export class SocialMediaMonitoringStack extends Stack {
       environment: {
         PORT: `${applicationPort}`,
         STAGE: stage,
-        TABLE_NAME: socialMediaDataTable.tableName,
+        SOCIAL_MEDIA_TABLE_NAME: socialMediaDataTable.tableName,
+        ITEMS_COUNT_TABLE_NAME: itemCountTable.tableName,
         METRIC_NAMESPACE: tweetCountMetric.namespace,
         // For now only internal endpoint is supported
         PUBLISHER_ENDPOINT:
@@ -331,6 +344,7 @@ export class SocialMediaMonitoringStack extends Stack {
 
     // Permissions for ECS consumer task
     socialMediaDataTable.grantWriteData(consumerTaskDefinition.taskRole);
+    itemCountTable.grantWriteData(consumerTaskDefinition.taskRole);
     consumerTaskDefinition.taskRole.attachInlinePolicy(
       new Policy(this, `${id}-consumer-task-policy`, {
         statements: [
@@ -358,7 +372,8 @@ export class SocialMediaMonitoringStack extends Stack {
       environment: {
         STAGE: stage,
         BUCKET_NAME: archiveBucket.bucketName,
-        TABLE_NAME: socialMediaDataTable.tableName,
+        SOCIAL_MEDIA_TABLE_NAME: socialMediaDataTable.tableName,
+        ITEM_COUNT_TABLE_NAME: itemCountTable.tableName,
       },
       handler: "handler",
       entry: join(__dirname, "../src/archive-lambda/index.ts"),
@@ -367,6 +382,7 @@ export class SocialMediaMonitoringStack extends Stack {
     // Permissions for Lambda
     archiveBucket.grantWrite(archiveLambda);
     socialMediaDataTable.grantReadWriteData(archiveLambda);
+    itemCountTable.grantReadWriteData(archiveLambda);
 
     // Schedule Lambda to trigger every 30 minutes
     new Rule(this, `${id}-archive-lambda-schedule`, {

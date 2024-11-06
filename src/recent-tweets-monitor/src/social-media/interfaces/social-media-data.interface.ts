@@ -1,5 +1,4 @@
 export interface TweetSocialMediaData {
-  provider: string;
   tweetId: string; // ID from the social media platform
   text: string;
   authorId: string;
