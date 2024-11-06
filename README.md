@@ -4,7 +4,7 @@ Collect user data from posts and store it for reports and analyses.
 
 # Architecture
 
-![architectural-diagram](image.png)
+![architectural-diagram](docs/diagram.png)
 
 ## Useful commands
 
