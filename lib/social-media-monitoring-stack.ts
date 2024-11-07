@@ -407,6 +407,12 @@ export class SocialMediaMonitoringStack extends Stack {
         metricName: tweetCountMetric.metricName,
         namespace: tweetCountMetric.namespace,
         stat: Stats.SUM,
+        dimensions: [
+          {
+            name: "ServiceName",
+            value: "TweetConsumer",
+          },
+        ],
       }
     );
 

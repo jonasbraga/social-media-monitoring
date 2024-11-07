@@ -13,7 +13,10 @@ export class MetricsService {
     this.cloudWatchClient = new CloudWatchClient({});
   }
 
-  async publishTweetReceivedMetric(count: number): Promise<void> {
+  async publishTweetReceivedMetric(
+    count: number,
+    hashtag: string,
+  ): Promise<void> {
     const params: PutMetricDataCommandInput = {
       Namespace: process.env.METRIC_NAMESPACE!,
       MetricData: [
@@ -26,6 +29,10 @@ export class MetricsService {
             {
               Name: 'ServiceName',
               Value: 'TweetConsumer',
+            },
+            {
+              Name: 'Hashtag',
+              Value: hashtag,
             },
           ],
         },

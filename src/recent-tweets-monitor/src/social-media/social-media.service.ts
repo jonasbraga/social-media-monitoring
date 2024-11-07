@@ -77,7 +77,10 @@ export class SocialMediaService {
       const tweets = this.extractCompleteArraysFromBuffer();
       this.logger.log(`Extracted ${tweets.length} tweets from last chunk`);
 
-      await this.metricService.publishTweetReceivedMetric(tweets.length);
+      await this.metricService.publishTweetReceivedMetric(
+        tweets.length,
+        hashtag,
+      );
 
       // Process each tweet received from the stream data in batches
       if (tweets.length > 0) {
