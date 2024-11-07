@@ -38,4 +38,7 @@ export class SocialMediaController {
     this.socialMediaService.consumeTweets(hashtag, requestOptions);
     return { message: 'Started consuming tweets.' };
   }
+
+  // Add more endpoints for different social media providers
+  // Or refactor the existing one to accept multiple providers
 }
