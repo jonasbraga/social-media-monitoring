@@ -365,6 +365,7 @@ export class SocialMediaMonitoringStack extends Stack {
     // Lambda Function for Archiving
     const archiveLambda = new NodejsFunction(this, `${id}-archive-lambda`, {
       runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.minutes(15), // Maximum timeout for Lambda
       logRetention:
         stage === "live" ? RetentionDays.FIVE_DAYS : RetentionDays.THREE_DAYS,
       bundling: {

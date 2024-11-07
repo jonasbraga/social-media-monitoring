@@ -14,13 +14,13 @@ export const handler: Handler = async (event, context) => {
 
     // Query ItemCountTable for items that exceed the threshold
     const scanResult = await itemCountTable.searchExceedHashtags(THRESHOLD);
-    console.log("Scan result:", scanResult);
 
     const itemsToProcess = scanResult.Items || [];
+    console.log(`Scanned ${itemsToProcess.length} items`);
 
     for (const item of itemsToProcess) {
       const pk = item["PROVIDER#CRITERIA"]!;
-      const itemCount = item.ItemCount!;
+      const itemCount = item.itemCount!;
       console.log(`Processing PK: ${pk}, ItemCount: ${itemCount}`);
 
       const numToArchive = itemCount - THRESHOLD;
