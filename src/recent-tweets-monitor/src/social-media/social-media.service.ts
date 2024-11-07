@@ -1,10 +1,9 @@
-// src/social-media/social-media.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { SocialMediaRepository } from './social-media.repository';
 import { TweetSocialMediaData } from './interfaces/social-media-data.interface';
 import axios, { AxiosResponse } from 'axios';
 import { TwitterAdapter } from './adapters/twitter.adapter';
-import { MetricsService } from 'src/metric/metric.service';
+import { MetricsService } from '../metric/metric.service';
 
 @Injectable()
 export class SocialMediaService {
